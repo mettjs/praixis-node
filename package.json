@@ -1,0 +1,29 @@
+{
+  "name": "praixis",
+  "version": "0.1.0",
+  "description": "Zero-dependency Node.js client for the Praixis Engine API",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["praixis", "llm", "rag", "ai"],
+  "author": "Michael E. Ramirez A.",
+  "license": "MIT",
+  "dependencies": {}
+}
