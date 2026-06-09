@@ -108,6 +108,13 @@ export interface UploadOptions {
   chunkSize?: number;
   chunkOverlap?: number;
   chunkingStrategy?: ChunkingStrategy;
+  /**
+   * Enable hypothetical-question indexing for better natural-language search on
+   * the uploaded document(s). Questions are generated in the background after the
+   * upload returns (the document is searchable immediately; matching improves
+   * once generation finishes). Defaults to false.
+   */
+  improvedSearch?: boolean;
 }
 
 export interface AskOptions {

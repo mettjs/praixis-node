@@ -1,6 +1,6 @@
 {
   "name": "praixis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-dependency Node.js client for the Praixis Engine API",
   "type": "module",
   "main": "index.js",

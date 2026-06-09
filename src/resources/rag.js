@@ -14,7 +14,7 @@ export class RagResource {
    * POST /rag-db/upload - ingest one or more documents into a collection.
    * Each file is { filename, content, contentType? } or a Blob/File.
    */
-  async upload(files, { collectionName = "main", chunkSize = 2000, chunkOverlap = 150, chunkingStrategy = "semantic" } = {}) {
+  async upload(files, { collectionName = "main", chunkSize = 2000, chunkOverlap = 150, chunkingStrategy = "semantic", improvedSearch = false } = {}) {
     return this._t.upload(`${PREFIX}/upload`, {
       files: toParts(files, "files"),
       fields: [
@@ -22,6 +22,7 @@ export class RagResource {
         { name: "chunk_size", value: String(chunkSize) },
         { name: "chunk_overlap", value: String(chunkOverlap) },
         { name: "chunking_strategy", value: chunkingStrategy },
+        { name: "improved_search", value: String(improvedSearch) },
       ],
     });
   }

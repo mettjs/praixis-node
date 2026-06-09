@@ -91,6 +91,11 @@ await client.rag.upload(
   { collectionName: "docs" },
 );
 
+// Improved search: generate hypothetical questions in the background so plain,
+// conversational queries match formal/technical text better. The document is
+// searchable immediately; matching improves once generation finishes.
+await client.rag.upload({ filename: "ley.pdf", content: "..." }, { collectionName: "docs", improvedSearch: true });
+
 // Ask a question grounded in a collection
 const ans = await client.rag.ask("What does the manual say about setup?", { collectionName: "docs" });
 console.log(ans.answer, ans.sources);
