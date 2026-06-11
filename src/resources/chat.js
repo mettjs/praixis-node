@@ -60,7 +60,9 @@ export class ChatResource {
 
   /**
    * POST /general-requests/file_summary - summarize one uploaded file.
-   * `file` is { filename, content, contentType? } or a Blob/File.
+   * `file` is { filename, content, contentType? } or a File. The filename
+   * extension is the primary format signal (.pdf/.docx/.txt); contentType is
+   * the server's fallback for extension-less names.
    */
   async summarizeFile(file, opts = {}) {
     const { markers, body } = await collectStream(

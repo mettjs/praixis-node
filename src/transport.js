@@ -79,7 +79,9 @@ export class Transport {
     const form = new FormData();
     for (const { name, value } of fields) form.append(name, value);
     for (const { field, filename, content, contentType } of files) {
-      const blob = content instanceof Blob ? content : new Blob([content], { type: contentType });
+      // A File/Blob with no declared type would put application/octet-stream on
+      // the part; re-wrap it so the contentType inferred in files.js is sent.
+      const blob = content instanceof Blob && content.type ? content : new Blob([content], { type: contentType });
       form.append(field, blob, filename);
     }
     return { method: "POST", headers: this._authHeader(), body: form };

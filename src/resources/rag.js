@@ -12,7 +12,9 @@ export class RagResource {
 
   /**
    * POST /rag-db/upload - ingest one or more documents into a collection.
-   * Each file is { filename, content, contentType? } or a Blob/File.
+   * Each file is { filename, content, contentType? } or a File. The filename
+   * extension is the primary format signal (.pdf/.docx/.txt); contentType is
+   * the server's fallback for extension-less names.
    */
   async upload(files, { collectionName = "main", chunkSize = 2000, chunkOverlap = 150, chunkingStrategy = "semantic", improvedSearch = false } = {}) {
     return this._t.upload(`${PREFIX}/upload`, {

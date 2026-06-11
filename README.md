@@ -52,7 +52,9 @@ await client.chat.listSessions();        // -> [sessionId, ...]
 await client.chat.getHistory(sessionId); // -> { session_id, history: [...] }
 await client.chat.clearHistory(sessionId);
 
-// Summarize an uploaded file ({ filename, content[, contentType] } or a Blob/File)
+// Summarize an uploaded file ({ filename, content[, contentType] } or a File).
+// Give the filename a .pdf/.docx/.txt extension — it's the primary format
+// signal; contentType is only the fallback for extension-less names.
 await client.chat.summarizeFile({ filename: "notes.txt", content: "raw text here" });
 ```
 
@@ -95,7 +97,17 @@ await client.rag.upload(
 // conversational queries match formal/technical text better. The document is
 // searchable immediately; matching improves once generation finishes.
 await client.rag.upload({ filename: "ley.pdf", content: "..." }, { collectionName: "docs", improvedSearch: true });
+```
 
+> **File inputs.** Every upload method takes `{ filename, content, contentType? }`
+> or a `File`. The `filename` is required — the server uses it as the document's
+> stored identity and as the primary format signal, so give it a `.pdf`/`.docx`/
+> `.txt` extension. When the extension is missing, the server falls back to the
+> part's Content-Type (inferred from the extension when `contentType` is
+> omitted), then to the file's magic bytes. A plain `Blob` is rejected because it
+> has no name.
+
+```js
 // Ask a question grounded in a collection
 const ans = await client.rag.ask("What does the manual say about setup?", { collectionName: "docs" });
 console.log(ans.answer, ans.sources);

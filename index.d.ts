@@ -84,9 +84,17 @@ export interface AskResponse {
   session_id: string | null;
 }
 
+/**
+ * One uploadable file. `filename` is required — the server uses it as the
+ * document's stored identity and (primarily) to detect the format, so prefer
+ * a `.pdf`/`.docx`/`.txt` extension. `contentType` is inferred from the
+ * extension when omitted and serves as the server's fallback signal for
+ * extension-less names. A plain `Blob` is not accepted (it has no name);
+ * pass a `File` or the object form instead.
+ */
 export type FileInput =
   | { filename: string; content: string | Uint8Array | Blob; contentType?: string }
-  | Blob;
+  | File;
 
 export interface ClientOptions {
   timeoutMs?: number;
