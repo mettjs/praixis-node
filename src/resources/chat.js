@@ -1,7 +1,7 @@
 /** Core AI endpoints - prefix /general-requests. */
 
 import { toPart } from "../files.js";
-import { streamEvents, collectStream } from "../stream.js";
+import { streamEvents } from "../stream.js";
 
 const PREFIX = "/general-requests";
 const DEFAULT_TASK = "Summarize the key points of this document.";
@@ -19,35 +19,28 @@ export class ChatResource {
     return body;
   }
 
-  _summaryArgs(file, { task = DEFAULT_TASK, tone = DEFAULT_TONE } = {}) {
+  _summaryArgs(file, { task = DEFAULT_TASK, tone = DEFAULT_TONE, responseFormat = "text" } = {}) {
     return {
       files: [toPart(file, "file")],
       fields: [
         { name: "task", value: task },
         { name: "tone", value: tone },
+        { name: "response_format", value: responseFormat },
       ],
     };
   }
 
   /**
-   * POST /general-requests/chat - send a prompt and get the full reply.
-   * Omit `sessionId` to start a new conversation. The server streams the reply;
-   * this buffers it and returns { session_id, response, response_format }.
+   * POST /general-requests/chat - send a prompt and get the full reply in one
+   * call. Omit `sessionId` to start a new conversation. Sends `stream: false`
+   * and returns the server's buffered JSON: { session_id, content }. For
+   * `responseFormat: "json"`, `content` is the model's raw JSON string — parse
+   * it yourself.
    */
   async send(prompt, opts = {}) {
-    const { markers, body } = await collectStream(
-      this._t.requestStream("POST", `${PREFIX}/chat`, { body: this._chatBody(prompt, opts) }),
-    );
-    const responseFormat = opts.responseFormat ?? "text";
-    let response = body;
-    if (responseFormat === "json") {
-      try {
-        response = JSON.parse(body);
-      } catch {
-        // server didn't return valid JSON; hand back the raw text
-      }
-    }
-    return { session_id: markers.session_id ?? null, response, response_format: responseFormat };
+    return this._t.requestJSON("POST", `${PREFIX}/chat`, {
+      body: { ...this._chatBody(prompt, opts), stream: false },
+    });
   }
 
   /**
@@ -59,18 +52,16 @@ export class ChatResource {
   }
 
   /**
-   * POST /general-requests/file_summary - summarize one uploaded file.
-   * `file` is { filename, content, contentType? } or a File. The filename
+   * POST /general-requests/file_summary - summarize one uploaded file in one
+   * call. `file` is { filename, content, contentType? } or a File. The filename
    * extension is the primary format signal (.pdf/.docx/.txt); contentType is
-   * the server's fallback for extension-less names.
+   * the server's fallback for extension-less names. Sends `stream: false` and
+   * returns the server's buffered JSON: { filename, content }.
    */
   async summarizeFile(file, opts = {}) {
-    const { markers, body } = await collectStream(
-      this._t.uploadStream(`${PREFIX}/file_summary`, this._summaryArgs(file, opts)),
-    );
-    const result = { filename: markers.file ?? null, summary: body };
-    if (markers.error !== undefined) result.error = markers.error;
-    return result;
+    const args = this._summaryArgs(file, opts);
+    args.fields.push({ name: "stream", value: "false" });
+    return this._t.upload(`${PREFIX}/file_summary`, args);
   }
 
   /**

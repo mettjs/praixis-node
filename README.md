@@ -39,13 +39,15 @@ const client = new PraixisClient("http://localhost:8080", "your-api-key", {
 ```js
 // Start a conversation
 const reply = await client.chat.send("Hello, world!");
-console.log(reply.session_id, reply.response);
+console.log(reply.session_id, reply.content);
 
 // Continue it
 await client.chat.send("And again?", { sessionId: reply.session_id });
 
-// JSON-mode response, custom system prompt
-await client.chat.send("List 3 colors", { responseFormat: "json", systemPrompt: "Be terse" });
+// JSON-mode response, custom system prompt. `content` is still a string — the
+// model's raw JSON text — which you parse yourself.
+const r = await client.chat.send("List 3 colors", { responseFormat: "json", systemPrompt: "Be terse" });
+const colors = JSON.parse(r.content);
 
 // Sessions
 await client.chat.listSessions();        // -> [sessionId, ...]
@@ -60,9 +62,10 @@ await client.chat.summarizeFile({ filename: "notes.txt", content: "raw text here
 
 ### Streaming
 
-The server streams chat, RAG answers, and file summaries as `text/event-stream`.
-The buffered methods above (`send`, `ask`, `summarizeFile`) collect the whole
-response and return it decoded — the right default for scripts and backends.
+The server's generative endpoints accept a `stream` toggle. The buffered methods
+(`send`, `ask`, `summarizeFile`, `compare`, `summarizeDocument`) send
+`stream: false` and return the server's native JSON — the right default for
+scripts and backends. The answer is always under `content`.
 
 For token-by-token output, use the streaming variants, which return an async
 iterator of events. Marker events (`session_id`, `search_query`, `sources`,
@@ -74,10 +77,11 @@ for await (const event of client.chat.stream("Tell me a story")) {
   else if (event.type === "session_id") console.log("session:", event.value);
 }
 
-// RAG: client.rag.askStream(question, { collectionName })
-//   -> session_id, search_query, sources, then token events
-// File summary: client.chat.summarizeFileStream(file)
-//   -> file, [progress...], then token events
+// Every buffered method has a streaming sibling:
+//   client.rag.askStream(question, { collectionName })       -> session_id, search_query, sources, then tokens
+//   client.chat.summarizeFileStream(file)                    -> file, [progress...], then tokens
+//   client.rag.compareStream(coll, f1, f2)                   -> tokens
+//   client.rag.summarizeDocumentStream(coll, filename)       -> file, then tokens
 ```
 
 ## RAG
@@ -110,16 +114,24 @@ await client.rag.upload({ filename: "ley.pdf", content: "..." }, { collectionNam
 ```js
 // Ask a question grounded in a collection
 const ans = await client.rag.ask("What does the manual say about setup?", { collectionName: "docs" });
-console.log(ans.answer, ans.sources);
+console.log(ans.content, ans.sources, ans.search_query);
 
-// Embeddings, listing, deletion, compare, summarize
+// Restrict retrieval to one source document. Only the `source` key is honored;
+// any other keys are ignored (not an error).
+await client.rag.ask("What is the notice period?", {
+  collectionName: "docs",
+  metadataFilter: { source: "policy.pdf" },
+});
+
+// Embeddings, listing, deletion, compare, summarize. compare/summarizeDocument
+// return { ..., content } and accept an optional { responseFormat }.
 await client.rag.embed("some text");
 await client.rag.listCollections();
 await client.rag.listFiles("docs");
 await client.rag.deleteFile("docs", "a.txt");
 await client.rag.deleteCollection("docs");
-await client.rag.compare("docs", "a.txt", "b.txt");
-await client.rag.summarizeDocument("docs", "manual.txt");
+const cmp = await client.rag.compare("docs", "a.txt", "b.txt");   // { file_1, file_2, content }
+const docSum = await client.rag.summarizeDocument("docs", "manual.txt"); // { filename, content }
 ```
 
 ## Error handling

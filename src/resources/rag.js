@@ -1,7 +1,7 @@
 /** Vector / RAG endpoints - prefix /rag-db. */
 
 import { toParts } from "../files.js";
-import { streamEvents, collectStream } from "../stream.js";
+import { streamEvents } from "../stream.js";
 
 const PREFIX = "/rag-db";
 
@@ -29,8 +29,8 @@ export class RagResource {
     });
   }
 
-  _askBody(question, { collectionName, sessionId, nResults = 5, systemPrompt, metadataFilter } = {}) {
-    const body = { collection_name: collectionName, question, n_results: nResults };
+  _askBody(question, { collectionName, sessionId, nResults = 5, systemPrompt, metadataFilter, responseFormat = "text" } = {}) {
+    const body = { collection_name: collectionName, question, n_results: nResults, response_format: responseFormat };
     if (sessionId !== undefined) body.session_id = sessionId;
     if (systemPrompt !== undefined) body.system_prompt = systemPrompt;
     if (metadataFilter !== undefined) body.metadata_filter = metadataFilter;
@@ -38,20 +38,15 @@ export class RagResource {
   }
 
   /**
-   * POST /rag-db/ask - answer a question grounded in a collection. The server
-   * streams the answer; this buffers it and returns
-   * { answer, sources, search_query, session_id }.
+   * POST /rag-db/ask - answer a question grounded in a collection, in one call.
+   * Sends `stream: false` and returns the server's buffered JSON:
+   * { session_id, search_query, sources, content }. For `responseFormat: "json"`,
+   * `content` is the model's raw JSON string — parse it yourself.
    */
   async ask(question, opts = {}) {
-    const { markers, body: answer } = await collectStream(
-      this._t.requestStream("POST", `${PREFIX}/ask`, { body: this._askBody(question, opts) }),
-    );
-    return {
-      answer,
-      sources: markers.sources ?? [],
-      search_query: markers.search_query ?? null,
-      session_id: markers.session_id ?? null,
-    };
+    return this._t.requestJSON("POST", `${PREFIX}/ask`, {
+      body: { ...this._askBody(question, opts), stream: false },
+    });
   }
 
   /**
@@ -91,18 +86,51 @@ export class RagResource {
     );
   }
 
-  /** POST /rag-db/knowledge_base/compare - compare two stored documents. */
-  async compare(collectionName, file1, file2) {
+  /**
+   * POST /rag-db/knowledge_base/compare - compare two stored documents in one
+   * call. Returns the server's buffered JSON: { file_1, file_2, content }.
+   */
+  async compare(collectionName, file1, file2, { responseFormat = "text" } = {}) {
     return this._t.requestJSON("POST", `${PREFIX}/knowledge_base/compare`, {
-      body: { collection_name: collectionName, file_1: file1, file_2: file2 },
+      body: { collection_name: collectionName, file_1: file1, file_2: file2, response_format: responseFormat },
     });
   }
 
-  /** GET /rag-db/knowledge_base/{collectionName}/files/{filename}/summary. */
-  async summarizeDocument(collectionName, filename) {
+  /**
+   * POST /rag-db/knowledge_base/compare - stream the comparison incrementally,
+   * yielding `{ type: "error" | "token", value }` events.
+   */
+  compareStream(collectionName, file1, file2, { responseFormat = "text" } = {}) {
+    return streamEvents(
+      this._t.requestStream("POST", `${PREFIX}/knowledge_base/compare`, {
+        body: { collection_name: collectionName, file_1: file1, file_2: file2, response_format: responseFormat, stream: true },
+      }),
+    );
+  }
+
+  /**
+   * GET /rag-db/knowledge_base/{collectionName}/files/{filename}/summary - in
+   * one call. Returns the server's buffered JSON: { filename, content }.
+   */
+  async summarizeDocument(collectionName, filename, { responseFormat = "text" } = {}) {
     return this._t.requestJSON(
       "GET",
       `${PREFIX}/knowledge_base/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/summary`,
+      { params: { response_format: responseFormat } },
+    );
+  }
+
+  /**
+   * GET .../summary - stream the document summary incrementally, yielding
+   * `{ type: "file" | "progress" | "error" | "token", value }` events.
+   */
+  summarizeDocumentStream(collectionName, filename, { responseFormat = "text" } = {}) {
+    return streamEvents(
+      this._t.requestStream(
+        "GET",
+        `${PREFIX}/knowledge_base/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/summary`,
+        { params: { response_format: responseFormat, stream: true } },
+      ),
     );
   }
 }

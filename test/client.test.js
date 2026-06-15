@@ -98,12 +98,16 @@ function startServer() {
 
     if (req.method === "POST" && p === "/general-requests/chat") {
       const body = JSON.parse((await readBody()).toString());
+      // Buffered path sends stream:false and expects the server's native JSON.
+      if (body.stream === false) return send(200, { session_id: body.session_id ?? "new-id", content: `echo:${body.prompt}` });
       return sendStream(200, `[SESSION_ID:${body.session_id ?? "new-id"}]\necho:${body.prompt}`);
     }
     if (req.method === "POST" && p === "/general-requests/file_summary") {
       const raw = (await readBody()).toString();
       assert.match(req.headers["content-type"] || "", /multipart\/form-data/);
       assert.match(raw, /report\.txt/);
+      assert.match(raw, /name="response_format"/);
+      if (/name="stream"\r?\n\r?\n\s*false/.test(raw)) return send(200, { filename: "report.txt", content: "short" });
       return sendStream(200, "[FILE:report.txt]\nshort");
     }
     if (req.method === "POST" && p === "/rag-db/upload") {
@@ -122,7 +126,18 @@ function startServer() {
     }
     if (req.method === "POST" && p === "/rag-db/ask") {
       const body = JSON.parse((await readBody()).toString());
+      if (body.stream === false)
+        return send(200, { session_id: body.session_id ?? "new", search_query: body.question, sources: ["a.txt"], content: "42" });
       return sendStream(200, `[SESSION_ID:${body.session_id ?? "new"}]\n[SEARCH_QUERY:${body.question}]\n[SOURCES:a.txt]\n42`);
+    }
+    if (req.method === "POST" && p === "/rag-db/knowledge_base/compare") {
+      const body = JSON.parse((await readBody()).toString());
+      if (body.stream) return sendStream(200, "v1 vs v2");
+      return send(200, { file_1: body.file_1, file_2: body.file_2, content: "v1 vs v2" });
+    }
+    if (req.method === "GET" && /\/summary$/.test(p)) {
+      if (url.searchParams.get("stream") === "true") return sendStream(200, "[FILE:policy.pdf]\nsummary text");
+      return send(200, { filename: "policy.pdf", content: "summary text" });
     }
     if (req.method === "POST" && p === "/rag-db/embed") return send(200, { text: "hello", dimensions: 2, embedding: [0.1, 0.2] });
 
@@ -139,9 +154,9 @@ test("praixis node client", async (t) => {
 
   const client = new PraixisClient(base, API_KEY);
 
-  // chat
+  // chat (buffered: stream:false, native { session_id, content })
   const r = await client.chat.send("hi", { systemPrompt: "be brief" });
-  assert.equal(r.response, "echo:hi");
+  assert.equal(r.content, "echo:hi");
   assert.equal(r.session_id, "new-id");
   assert.equal((await client.chat.send("again", { sessionId: "s9" })).session_id, "s9");
   assert.deepEqual(await client.chat.listSessions(), ["s1", "s2"]);
@@ -150,7 +165,7 @@ test("praixis node client", async (t) => {
   assert.equal(h.history.length, 1);
   assert.equal((await client.chat.clearHistory("abc")).status, "success");
   const sum = await client.chat.summarizeFile({ filename: "report.txt", content: "hello doc" });
-  assert.equal(sum.summary, "short");
+  assert.equal(sum.content, "short");
   assert.equal(sum.filename, "report.txt");
 
   // streaming chat: markers arrive as events, content as tokens
@@ -173,8 +188,9 @@ test("praixis node client", async (t) => {
   );
   assert.equal(up.processed, 2);
   assert.equal(up.succeeded, 2);
+  // ask (buffered: stream:false, native { session_id, search_query, sources, content })
   const ans = await client.rag.ask("q?", { collectionName: "docs", sessionId: "s2" });
-  assert.equal(ans.answer, "42");
+  assert.equal(ans.content, "42");
   assert.equal(ans.session_id, "s2");
   assert.deepEqual(ans.sources, ["a.txt"]);
   assert.equal(ans.search_query, "q?");
@@ -183,6 +199,21 @@ test("praixis node client", async (t) => {
   const askEvents = await toArray(client.rag.askStream("q?", { collectionName: "docs", sessionId: "s2" }));
   assert.deepEqual(askEvents.find((e) => e.type === "sources"), { type: "sources", value: ["a.txt"] });
   assert.equal(askEvents.filter((e) => e.type === "token").map((e) => e.value).join(""), "42");
+
+  // compare / summarizeDocument (buffered native JSON, key = content)
+  const cmp = await client.rag.compare("docs", "v1.pdf", "v2.pdf");
+  assert.equal(cmp.content, "v1 vs v2");
+  assert.equal(cmp.file_1, "v1.pdf");
+  const docSum = await client.rag.summarizeDocument("docs", "policy.pdf");
+  assert.equal(docSum.content, "summary text");
+  assert.equal(docSum.filename, "policy.pdf");
+
+  // their streaming counterparts
+  const cmpEvents = await toArray(client.rag.compareStream("docs", "v1.pdf", "v2.pdf"));
+  assert.equal(cmpEvents.filter((e) => e.type === "token").map((e) => e.value).join(""), "v1 vs v2");
+  const docSumEvents = await toArray(client.rag.summarizeDocumentStream("docs", "policy.pdf"));
+  assert.deepEqual(docSumEvents[0], { type: "file", value: "policy.pdf" });
+  assert.equal(docSumEvents.filter((e) => e.type === "token").map((e) => e.value).join(""), "summary text");
 
   assert.equal((await client.rag.embed("hello")).dimensions, 2);
   assert.deepEqual(await client.rag.listCollections(), ["main"]);

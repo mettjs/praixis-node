@@ -8,7 +8,7 @@
  *
  *   const client = new PraixisClient("http://localhost:8080", "my-api-key");
  *   const reply = await client.chat.send("Hello");
- *   console.log(reply.response);
+ *   console.log(reply.content);
  */
 
 export { PraixisClient } from "./src/client.js";

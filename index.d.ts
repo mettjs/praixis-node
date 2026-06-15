@@ -10,8 +10,9 @@ export type ResponseFormat = "text" | "json";
 export type ChunkingStrategy = "semantic" | "character";
 
 /**
- * An event yielded by the streaming methods (`chat.stream`, `rag.askStream`,
- * `chat.summarizeFileStream`). Markers arrive before `token` events.
+ * An event yielded by the streaming methods (`chat.stream`, `chat.summarizeFileStream`,
+ * `rag.askStream`, `rag.compareStream`, `rag.summarizeDocumentStream`). Markers
+ * arrive before `token` events.
  */
 export type StreamEvent =
   | { type: "session_id"; value: string }
@@ -29,20 +30,26 @@ export interface ChatMessage {
 }
 
 export interface ChatResponse {
-  /** From the stream's [SESSION_ID:...] marker; null if absent. */
-  session_id: string | null;
-  /** Assembled reply text for "text"; parsed JSON for "json" (raw text if it failed to parse). */
-  response: unknown;
-  response_format: string;
+  /** The session this turn belongs to (new or continued). */
+  session_id: string;
+  /** The reply. For `responseFormat: "json"`, the model's raw JSON string. */
+  content: string;
 }
 
+/** Buffered response from `chat.summarizeFile` and `rag.summarizeDocument`. */
 export interface SummaryResponse {
-  /** From the stream's [FILE:...] marker; null if absent. */
-  filename: string | null;
-  /** Assembled summary text. */
-  summary: string;
-  /** Present only if the stream emitted an [ERROR:...] marker. */
-  error?: string;
+  /** The summarized file's name. */
+  filename: string;
+  /** The summary. For `responseFormat: "json"`, the model's raw JSON string. */
+  content: string;
+}
+
+/** Buffered response from `rag.compare`. */
+export interface ComparisonResponse {
+  file_1: string;
+  file_2: string;
+  /** The comparison. For `responseFormat: "json"`, the model's raw JSON string. */
+  content: string;
 }
 
 export interface SessionHistory {
@@ -76,12 +83,13 @@ export interface UploadResponse {
 }
 
 export interface AskResponse {
-  answer: string;
-  /** Source filenames from the stream's [SOURCES:...] marker. */
+  session_id: string;
+  /** The (possibly reformulated) query the server used for retrieval. */
+  search_query: string;
+  /** Source filenames that contributed context. */
   sources: string[];
-  /** The (possibly reformulated) query from the [SEARCH_QUERY:...] marker. */
-  search_query: string | null;
-  session_id: string | null;
+  /** The answer. For `responseFormat: "json"`, the model's raw JSON string. */
+  content: string;
 }
 
 /**
@@ -109,6 +117,12 @@ export interface ChatOptions {
 export interface SummarizeFileOptions {
   task?: string;
   tone?: string;
+  responseFormat?: ResponseFormat;
+}
+
+/** Options for `rag.compare` / `rag.compareStream` and `rag.summarizeDocument` / `rag.summarizeDocumentStream`. */
+export interface ResponseFormatOptions {
+  responseFormat?: ResponseFormat;
 }
 
 export interface UploadOptions {
@@ -130,7 +144,12 @@ export interface AskOptions {
   sessionId?: string;
   nResults?: number;
   systemPrompt?: string;
+  /**
+   * Restrict retrieval to a single source document. The only honored key is
+   * `source`, e.g. `{ source: "policy.pdf" }`; any other keys are ignored.
+   */
   metadataFilter?: Record<string, unknown>;
+  responseFormat?: ResponseFormat;
 }
 
 type Dict = Record<string, unknown>;
@@ -154,8 +173,10 @@ export class RagResource {
   listFiles(collectionName: string): Promise<Dict>;
   deleteCollection(collectionName: string): Promise<StatusMessage>;
   deleteFile(collectionName: string, filename: string): Promise<StatusMessage>;
-  compare(collectionName: string, file1: string, file2: string): Promise<Dict>;
-  summarizeDocument(collectionName: string, filename: string): Promise<Dict>;
+  compare(collectionName: string, file1: string, file2: string, opts?: ResponseFormatOptions): Promise<ComparisonResponse>;
+  compareStream(collectionName: string, file1: string, file2: string, opts?: ResponseFormatOptions): AsyncGenerator<StreamEvent>;
+  summarizeDocument(collectionName: string, filename: string, opts?: ResponseFormatOptions): Promise<SummaryResponse>;
+  summarizeDocumentStream(collectionName: string, filename: string, opts?: ResponseFormatOptions): AsyncGenerator<StreamEvent>;
 }
 
 export class PraixisClient {
