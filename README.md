@@ -123,6 +123,10 @@ await client.rag.ask("What is the notice period?", {
   metadataFilter: { source: "policy.pdf" },
 });
 
+// Retrieval only: ranked raw chunks, no LLM. Pass a standalone query (not reformulated).
+const hits = await client.rag.search("setup steps", { collectionName: "docs" });
+for (const r of hits.results) console.log(r.source, r.score, r.text); // hits.score_type: "rrf" | "similarity"
+
 // Embeddings, listing, deletion, compare, summarize. compare/summarizeDocument
 // return { ..., content } and accept an optional { responseFormat }.
 await client.rag.embed("some text");

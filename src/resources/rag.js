@@ -57,6 +57,20 @@ export class RagResource {
     return streamEvents(this._t.requestStream("POST", `${PREFIX}/ask`, { body: this._askBody(question, opts) }));
   }
 
+  /**
+   * POST /rag-db/search - retrieval only: ranked raw chunks, no LLM. Returns the
+   * server's buffered JSON: { collection_name, query, n_results, results, score_type },
+   * where each result is { source, text, score }. Unlike `ask` it does not reformulate
+   * the query or call the model — pass a standalone query. Use it when you want the
+   * evidence and its scores to reason over yourself instead of a finished answer.
+   * `score_type` is "rrf" (hybrid pgvector backend) or "similarity" (dense Chroma backend).
+   */
+  async search(query, { collectionName, nResults = 5 } = {}) {
+    return this._t.requestJSON("POST", `${PREFIX}/search`, {
+      body: { collection_name: collectionName, query, n_results: nResults },
+    });
+  }
+
   /** POST /rag-db/embed - return the embedding vector for `text`. */
   async embed(text) {
     return this._t.requestJSON("POST", `${PREFIX}/embed`, { body: { text } });

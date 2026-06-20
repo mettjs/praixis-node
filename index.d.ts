@@ -92,6 +92,29 @@ export interface AskResponse {
   content: string;
 }
 
+/** One ranked chunk from `rag.search`. */
+export interface SearchResult {
+  /** Filename the chunk came from. */
+  source: string;
+  /** The chunk's raw text. */
+  text: string;
+  /** Ranking score; read against `score_type`. */
+  score: number;
+}
+
+/** Buffered response from `rag.search` — retrieval only, no LLM synthesis. */
+export interface SearchResponse {
+  collection_name: string;
+  query: string;
+  n_results: number;
+  results: SearchResult[];
+  /**
+   * How to read each result's `score`: "rrf" (hybrid pgvector backend, small
+   * values, higher is better) or "similarity" (dense Chroma backend, 0–1).
+   */
+  score_type: "rrf" | "similarity";
+}
+
 /**
  * One uploadable file. `filename` is required — the server uses it as the
  * document's stored identity and (primarily) to detect the format, so prefer
@@ -152,6 +175,11 @@ export interface AskOptions {
   responseFormat?: ResponseFormat;
 }
 
+export interface SearchOptions {
+  collectionName: string;
+  nResults?: number;
+}
+
 type Dict = Record<string, unknown>;
 
 export class ChatResource {
@@ -168,6 +196,7 @@ export class RagResource {
   upload(files: FileInput | FileInput[], opts?: UploadOptions): Promise<UploadResponse>;
   ask(question: string, opts: AskOptions): Promise<AskResponse>;
   askStream(question: string, opts: AskOptions): AsyncGenerator<StreamEvent>;
+  search(query: string, opts: SearchOptions): Promise<SearchResponse>;
   embed(text: string): Promise<Dict>;
   listCollections(): Promise<unknown[]>;
   listFiles(collectionName: string): Promise<Dict>;
