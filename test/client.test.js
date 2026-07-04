@@ -89,6 +89,24 @@ function startServer() {
 
     if (req.method === "GET" && p === "/general-requests/chat/sessions/active") return send(200, { active_sessions: ["s1", "s2"] });
     if (req.method === "GET" && p === "/general-requests/chat/missing") return send(404, { detail: "not found" });
+    if (req.method === "GET" && p.startsWith("/general-requests/chat/") && p.endsWith("/usage"))
+      return send(200, {
+        session_id: p.split("/").at(-2),
+        requests: 3,
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        estimated_context_tokens: 40,
+      });
+    if (req.method === "POST" && p.startsWith("/general-requests/chat/") && p.endsWith("/compact"))
+      return send(200, {
+        status: "success",
+        session_id: p.split("/").at(-2),
+        messages_before: 12,
+        messages_after: 5,
+        estimated_tokens_before: 900,
+        estimated_tokens_after: 300,
+      });
     if (req.method === "GET" && p.startsWith("/general-requests/chat/"))
       return send(200, { session_id: p.split("/").pop(), history: [{ role: "user", content: "hi" }] });
     if (req.method === "DELETE" && p.startsWith("/general-requests/chat/")) return send(200, { status: "success", detail: "Session deleted." });
@@ -139,6 +157,16 @@ function startServer() {
       if (url.searchParams.get("stream") === "true") return sendStream(200, "[FILE:policy.pdf]\nsummary text");
       return send(200, { filename: "policy.pdf", content: "summary text" });
     }
+    if (req.method === "POST" && p === "/rag-db/search") {
+      const body = JSON.parse((await readBody()).toString());
+      return send(200, {
+        collection_name: body.collection_name,
+        query: body.query,
+        n_results: body.n_results,
+        results: [{ source: "a.txt", text: "chunk text", score: 0.9 }],
+        score_type: "similarity",
+      });
+    }
     if (req.method === "POST" && p === "/rag-db/embed") return send(200, { text: "hello", dimensions: 2, embedding: [0.1, 0.2] });
 
     return send(404, { detail: "not found" });
@@ -163,6 +191,13 @@ test("praixis node client", async (t) => {
   const h = await client.chat.getHistory("abc");
   assert.equal(h.session_id, "abc");
   assert.equal(h.history.length, 1);
+  const usage = await client.chat.getUsage("abc");
+  assert.equal(usage.session_id, "abc");
+  assert.equal(usage.total_tokens, 150);
+  assert.equal(usage.estimated_context_tokens, 40);
+  const compacted = await client.chat.compact("abc");
+  assert.equal(compacted.status, "success");
+  assert.equal(compacted.messages_after, 5);
   assert.equal((await client.chat.clearHistory("abc")).status, "success");
   const sum = await client.chat.summarizeFile({ filename: "report.txt", content: "hello doc" });
   assert.equal(sum.content, "short");
@@ -199,6 +234,12 @@ test("praixis node client", async (t) => {
   const askEvents = await toArray(client.rag.askStream("q?", { collectionName: "docs", sessionId: "s2" }));
   assert.deepEqual(askEvents.find((e) => e.type === "sources"), { type: "sources", value: ["a.txt"] });
   assert.equal(askEvents.filter((e) => e.type === "token").map((e) => e.value).join(""), "42");
+
+  // search (retrieval only, buffered native JSON)
+  const hits = await client.rag.search("setup steps", { collectionName: "docs", nResults: 3 });
+  assert.equal(hits.score_type, "similarity");
+  assert.equal(hits.n_results, 3);
+  assert.equal(hits.results[0].source, "a.txt");
 
   // compare / summarizeDocument (buffered native JSON, key = content)
   const cmp = await client.rag.compare("docs", "v1.pdf", "v2.pdf");

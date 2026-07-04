@@ -57,6 +57,34 @@ export interface SessionHistory {
   history: ChatMessage[];
 }
 
+/**
+ * Response of `chat.getUsage`. Counters cover the streamed answer (chat and
+ * RAG), RAG query reformulation, and compaction calls; they expire with the
+ * session.
+ */
+export interface SessionUsage {
+  session_id: string;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  /**
+   * Estimated size of the current history against the server's context budget
+   * (~4 chars/token) — how close the session is to auto-compacting.
+   */
+  estimated_context_tokens: number;
+}
+
+/** Response of `chat.compact`. */
+export interface CompactionResult {
+  status: string;
+  session_id: string;
+  messages_before: number;
+  messages_after: number;
+  estimated_tokens_before: number;
+  estimated_tokens_after: number;
+}
+
 export interface StatusMessage {
   status: string;
   message: string;
@@ -189,6 +217,8 @@ export class ChatResource {
   summarizeFileStream(file: FileInput, opts?: SummarizeFileOptions): AsyncGenerator<StreamEvent>;
   listSessions(): Promise<string[]>;
   getHistory(sessionId: string): Promise<SessionHistory>;
+  getUsage(sessionId: string): Promise<SessionUsage>;
+  compact(sessionId: string): Promise<CompactionResult>;
   clearHistory(sessionId: string): Promise<SessionDeleted>;
 }
 

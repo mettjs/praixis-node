@@ -54,6 +54,20 @@ await client.chat.listSessions();        // -> [sessionId, ...]
 await client.chat.getHistory(sessionId); // -> { session_id, history: [...] }
 await client.chat.clearHistory(sessionId);
 
+// Per-session token usage. Counts the streamed answers (chat and RAG), RAG query
+// reformulation, and compaction calls; counters expire with the session.
+// estimated_context_tokens shows how close the session is to auto-compacting.
+const usage = await client.chat.getUsage(sessionId);
+// -> { session_id, requests, prompt_tokens, completion_tokens,
+//      total_tokens, estimated_context_tokens }
+
+// Compact a session on demand: fold older exchanges into an LLM-written summary
+// (the server also does this automatically near its context budget). Rejects
+// with an APIError of status 400 when there's nothing to fold yet.
+await client.chat.compact(sessionId);
+// -> { status, session_id, messages_before, messages_after,
+//      estimated_tokens_before, estimated_tokens_after }
+
 // Summarize an uploaded file ({ filename, content[, contentType] } or a File).
 // Give the filename a .pdf/.docx/.txt extension — it's the primary format
 // signal; contentType is only the fallback for extension-less names.

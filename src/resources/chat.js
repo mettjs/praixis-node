@@ -83,6 +83,31 @@ export class ChatResource {
     return this._t.requestJSON("GET", `${PREFIX}/chat/${encodeURIComponent(sessionId)}`);
   }
 
+  /**
+   * GET /general-requests/chat/{sessionId}/usage - a session's token usage.
+   * Returns { session_id, requests, prompt_tokens, completion_tokens,
+   * total_tokens, estimated_context_tokens }. Counters cover the streamed
+   * answer (chat and RAG), RAG query reformulation, and compaction calls, and
+   * expire with the session. `estimated_context_tokens` is the current history
+   * size against the server's context budget — how close the session is to
+   * auto-compacting.
+   */
+  async getUsage(sessionId) {
+    return this._t.requestJSON("GET", `${PREFIX}/chat/${encodeURIComponent(sessionId)}/usage`);
+  }
+
+  /**
+   * POST /general-requests/chat/{sessionId}/compact - compact a session now.
+   * Folds older exchanges into an LLM-written summary (the server also does
+   * this automatically near its context budget). Returns { status, session_id,
+   * messages_before, messages_after, estimated_tokens_before,
+   * estimated_tokens_after }. Rejects with an APIError of status 400 when there
+   * is nothing to fold yet, or 503 when the GPU pool is saturated.
+   */
+  async compact(sessionId) {
+    return this._t.requestJSON("POST", `${PREFIX}/chat/${encodeURIComponent(sessionId)}/compact`);
+  }
+
   /** DELETE /general-requests/chat/{sessionId} - clear a session. */
   async clearHistory(sessionId) {
     return this._t.requestJSON("DELETE", `${PREFIX}/chat/${encodeURIComponent(sessionId)}`);
