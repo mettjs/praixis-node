@@ -31,6 +31,11 @@ test("collectStream splits markers from body", async () => {
     await collectStream(fromChunks("[SESSION_ID:s1]\n[SEARCH_QUERY:what is x?]\n[SOURCES:a.txt,b.txt]\nAnswer.")),
     { markers: { session_id: "s1", search_query: "what is x?", sources: ["a.txt", "b.txt"] }, body: "Answer." },
   );
+  // escaped source items: commas / percents / brackets in filenames survive
+  assert.deepEqual(await collectStream(fromChunks("[SOURCES:Q3%2C Final.pdf,50%25 off%5D.txt]\nok")), {
+    markers: { sources: ["Q3, Final.pdf", "50% off].txt"] },
+    body: "ok",
+  });
   // file summary: repeated PROGRESS markers collect into an array
   assert.deepEqual(await collectStream(fromChunks("[FILE:r.txt]\n[PROGRESS:mapping]\n[PROGRESS:reducing]\nDone.")), {
     markers: { file: "r.txt", progress: ["mapping", "reducing"] },
@@ -109,10 +114,39 @@ function startServer() {
       });
     if (req.method === "GET" && p.startsWith("/general-requests/chat/"))
       return send(200, { session_id: p.split("/").pop(), history: [{ role: "user", content: "hi" }] });
+    if (req.method === "DELETE" && p.startsWith("/general-requests/chat/") && p.endsWith("/last"))
+      return send(200, {
+        status: "success",
+        session_id: p.split("/").at(-2),
+        removed_messages: 2,
+        undone_prompt: "hi",
+        messages_remaining: 1,
+      });
     if (req.method === "DELETE" && p.startsWith("/general-requests/chat/")) return send(200, { status: "success", detail: "Session deleted." });
     if (req.method === "GET" && p === "/rag-db/list")
       return send(200, { status: "success", total_documents: 1, active_collections: ["main"] });
     if (req.method === "DELETE" && p.startsWith("/rag-db/")) return send(200, { status: "success", message: "deleted" });
+    if (req.method === "GET" && p.endsWith("/chunks"))
+      return send(200, {
+        status: "success",
+        collection_name: "docs",
+        filename: "policy.pdf",
+        total_chunks: 2,
+        chunks: [
+          { chunk_index: 0, content: "part one" },
+          { chunk_index: 1, content: "part two" },
+        ],
+      });
+    if (req.method === "GET" && p.endsWith("/questions"))
+      return send(200, {
+        collection_name: "docs",
+        filename: "policy.pdf",
+        total_chunks: 2,
+        questions_stored: 10,
+        generation_pending: false,
+      });
+    if (req.method === "POST" && p.endsWith("/questions"))
+      return send(200, { status: "scheduled", collection_name: "docs", filename: "policy.pdf", chunks: 2 });
 
     if (req.method === "POST" && p === "/general-requests/chat") {
       const body = JSON.parse((await readBody()).toString());
@@ -168,6 +202,17 @@ function startServer() {
       });
     }
     if (req.method === "POST" && p === "/rag-db/embed") return send(200, { text: "hello", dimensions: 2, embedding: [0.1, 0.2] });
+    if (req.method === "POST" && p === "/rag-db/upload_text") {
+      const body = JSON.parse((await readBody()).toString());
+      assert.ok(["semantic", "character"].includes(body.chunking_strategy));
+      return send(200, {
+        status: "success",
+        collection_name: body.collection_name,
+        filename: body.filename,
+        chunks_stored: 3,
+        improved_search: body.improved_search,
+      });
+    }
 
     return send(404, { detail: "not found" });
   });
@@ -198,6 +243,11 @@ test("praixis node client", async (t) => {
   const compacted = await client.chat.compact("abc");
   assert.equal(compacted.status, "success");
   assert.equal(compacted.messages_after, 5);
+  const undone = await client.chat.undoLastExchange("abc");
+  assert.equal(undone.removed_messages, 2);
+  assert.equal(undone.undone_prompt, "hi");
+  assert.equal(undone.session_id, "abc");
+  assert.equal(undone.messages_remaining, 1);
   assert.equal((await client.chat.clearHistory("abc")).status, "success");
   const sum = await client.chat.summarizeFile({ filename: "report.txt", content: "hello doc" });
   assert.equal(sum.content, "short");
@@ -259,6 +309,22 @@ test("praixis node client", async (t) => {
   assert.equal((await client.rag.embed("hello")).dimensions, 2);
   assert.deepEqual(await client.rag.listCollections(), ["main"]);
   assert.equal((await client.rag.deleteCollection("docs")).status, "success");
+
+  // text ingestion + chunk inspection + question index management
+  const txt = await client.rag.uploadText("raw text here", "notes.txt", { collectionName: "docs", improvedSearch: true });
+  assert.equal(txt.chunks_stored, 3);
+  assert.equal(txt.filename, "notes.txt");
+  assert.equal(txt.improved_search, true);
+  const ch = await client.rag.getChunks("docs", "policy.pdf");
+  assert.equal(ch.total_chunks, 2);
+  assert.equal(ch.chunks[0].chunk_index, 0);
+  assert.equal(ch.chunks[1].content, "part two");
+  const qs = await client.rag.questionStatus("docs", "policy.pdf");
+  assert.equal(qs.questions_stored, 10);
+  assert.equal(qs.generation_pending, false);
+  const rq = await client.rag.regenerateQuestions("docs", "policy.pdf");
+  assert.equal(rq.status, "scheduled");
+  assert.equal(rq.chunks, 2);
 
   // api-key failure
   const badKey = new PraixisClient(base, "wrong");

@@ -68,6 +68,14 @@ await client.chat.compact(sessionId);
 // -> { status, session_id, messages_before, messages_after,
 //      estimated_tokens_before, estimated_tokens_after }
 
+// Undo the last exchange: removes the most recent user message and the
+// assistant reply that followed it, so you can retry or regenerate. Compaction
+// summaries are kept. Rejects with an APIError of status 400 when there's no
+// user message left to undo.
+const undone = await client.chat.undoLastExchange(sessionId);
+// -> { status, session_id, removed_messages, undone_prompt,
+//      messages_remaining }  — undone_prompt is the removed user message
+
 // Summarize an uploaded file ({ filename, content[, contentType] } or a File).
 // Give the filename a .pdf/.docx/.txt extension — it's the primary format
 // signal; contentType is only the fallback for extension-less names.
@@ -115,6 +123,11 @@ await client.rag.upload(
 // conversational queries match formal/technical text better. The document is
 // searchable immediately; matching improves once generation finishes.
 await client.rag.upload({ filename: "ley.pdf", content: "..." }, { collectionName: "docs", improvedSearch: true });
+
+// Ingest raw text directly — no file wrapping. Same pipeline and options as
+// upload; the filename becomes the document's stored identity.
+await client.rag.uploadText("full document text…", "faq-2026.txt", { collectionName: "docs" });
+// -> { status, collection_name, filename, chunks_stored, improved_search }
 ```
 
 > **File inputs.** Every upload method takes `{ filename, content, contentType? }`
@@ -150,6 +163,22 @@ await client.rag.deleteFile("docs", "a.txt");
 await client.rag.deleteCollection("docs");
 const cmp = await client.rag.compare("docs", "a.txt", "b.txt");   // { file_1, file_2, content }
 const docSum = await client.rag.summarizeDocument("docs", "manual.txt"); // { filename, content }
+
+// Inspect how a document was chunked — exactly what retrieval sees.
+const ch = await client.rag.getChunks("docs", "manual.txt");
+// -> { status, collection_name, filename, total_chunks,
+//      chunks: [{ chunk_index, content }, ...] }
+
+// Question-index management: improvedSearch is no longer locked in at upload.
+// regenerateQuestions rebuilds the index in the background, replacing the old
+// questions only once the new pass succeeds; poll questionStatus until
+// generation_pending is false. Rejects with APIError 409 while a pass is
+// already running, 400 when indexing is disabled server-side.
+await client.rag.regenerateQuestions("docs", "manual.txt");
+// -> { status: "scheduled", collection_name, filename, chunks }
+await client.rag.questionStatus("docs", "manual.txt");
+// -> { collection_name, filename, total_chunks, questions_stored,
+//      generation_pending }
 ```
 
 ## Error handling

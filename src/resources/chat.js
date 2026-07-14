@@ -108,6 +108,19 @@ export class ChatResource {
     return this._t.requestJSON("POST", `${PREFIX}/chat/${encodeURIComponent(sessionId)}/compact`);
   }
 
+  /**
+   * DELETE /general-requests/chat/{sessionId}/last - undo the last exchange.
+   * Removes the most recent user message and the assistant reply that followed
+   * it (or just the user message if generation failed), so you can retry or
+   * regenerate. Compaction summaries are kept. Returns { status, session_id,
+   * removed_messages, undone_prompt, messages_remaining }; `undone_prompt` is
+   * the removed user message. Rejects with an APIError of status 400 when the
+   * session has no user messages left to undo.
+   */
+  async undoLastExchange(sessionId) {
+    return this._t.requestJSON("DELETE", `${PREFIX}/chat/${encodeURIComponent(sessionId)}/last`);
+  }
+
   /** DELETE /general-requests/chat/{sessionId} - clear a session. */
   async clearHistory(sessionId) {
     return this._t.requestJSON("DELETE", `${PREFIX}/chat/${encodeURIComponent(sessionId)}`);

@@ -16,6 +16,11 @@
  * Markers are emitted on their own `\n`-terminated lines before any content, so
  * we peel complete marker lines off the head of the stream and treat everything
  * from the first non-marker byte onward as content.
+ *
+ * Items inside the comma-separated SOURCES value are escaped by the server
+ * (v2.3.0+): `%` -> `%25`, `,` -> `%2C`, `]` -> `%5D`, `\n` -> `%0A`, `\r` ->
+ * `%0D`, so filenames containing those characters can't corrupt the list or
+ * the marker line. Decoding applies the reverse replacements with `%25` last.
  */
 
 const MARKER_KEYS = ["SESSION_ID", "SEARCH_QUERY", "SOURCES", "FILE", "PROGRESS", "ERROR"];
@@ -36,8 +41,17 @@ const EVENT_TYPE = {
   ERROR: "error",
 };
 
+const SOURCE_UNESCAPES = [["%2C", ","], ["%5D", "]"], ["%0A", "\n"], ["%0D", "\r"], ["%25", "%"]];
+
+function decodeSource(item) {
+  for (const [escaped, raw] of SOURCE_UNESCAPES) item = item.replaceAll(escaped, raw);
+  return item;
+}
+
 function markerEvent(key, value) {
-  if (key === "SOURCES") return { type: "sources", value: value ? value.split(",") : [] };
+  if (key === "SOURCES") {
+    return { type: "sources", value: value ? value.split(",").map(decodeSource) : [] };
+  }
   return { type: EVENT_TYPE[key], value };
 }
 

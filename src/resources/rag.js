@@ -29,6 +29,73 @@ export class RagResource {
     });
   }
 
+  /**
+   * POST /rag-db/upload_text - ingest raw text as a document. For callers that
+   * already hold the content (scraped pages, database records) — no file
+   * wrapping needed. Runs the same pipeline as `upload` after text extraction,
+   * so the stored document works with every other endpoint. `filename` becomes
+   * the document's stored identity; re-using one replaces the prior document.
+   * Returns { status, collection_name, filename, chunks_stored, improved_search }.
+   */
+  async uploadText(text, filename, { collectionName = "main", chunkSize = 2000, chunkOverlap = 150, chunkingStrategy = "semantic", improvedSearch = false } = {}) {
+    return this._t.requestJSON("POST", `${PREFIX}/upload_text`, {
+      body: {
+        text,
+        filename,
+        collection_name: collectionName,
+        chunk_size: chunkSize,
+        chunk_overlap: chunkOverlap,
+        chunking_strategy: chunkingStrategy,
+        improved_search: improvedSearch,
+      },
+    });
+  }
+
+  /**
+   * GET /rag-db/{collectionName}/files/{filename}/chunks - a document's stored
+   * chunks in order ({ chunk_index, content } each) — exactly what retrieval
+   * sees, useful for debugging why a search returned what it did. Returns
+   * { status, collection_name, filename, total_chunks, chunks }.
+   */
+  async getChunks(collectionName, filename) {
+    return this._t.requestJSON(
+      "GET",
+      `${PREFIX}/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/chunks`,
+    );
+  }
+
+  /**
+   * GET /rag-db/{collectionName}/files/{filename}/questions - the
+   * hypothetical-question index's status for a document. Returns
+   * { collection_name, filename, total_chunks, questions_stored,
+   * generation_pending }; `generation_pending` is true while a background
+   * generation pass is running — poll this after `regenerateQuestions` (or an
+   * upload with `improvedSearch: true`).
+   */
+  async questionStatus(collectionName, filename) {
+    return this._t.requestJSON(
+      "GET",
+      `${PREFIX}/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/questions`,
+    );
+  }
+
+  /**
+   * POST /rag-db/{collectionName}/files/{filename}/questions - backfill or
+   * rebuild the hypothetical-question index for a stored document;
+   * `improvedSearch` is no longer locked in at upload time. A fresh question
+   * set is generated in the background, and the existing index is replaced
+   * only once the new pass succeeds (poll `questionStatus` for
+   * progress). Returns { status: "scheduled", collection_name, filename,
+   * chunks }. Rejects with an APIError of status 409 while a pass is already
+   * running, or 400 when question indexing is disabled server-side.
+   */
+  async regenerateQuestions(collectionName, filename) {
+    return this._t.requestJSON(
+      "POST",
+      `${PREFIX}/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/questions`,
+    );
+  }
+
   _askBody(question, { collectionName, sessionId, nResults = 5, systemPrompt, metadataFilter, responseFormat = "text" } = {}) {
     const body = { collection_name: collectionName, question, n_results: nResults, response_format: responseFormat };
     if (sessionId !== undefined) body.session_id = sessionId;

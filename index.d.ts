@@ -85,6 +85,20 @@ export interface CompactionResult {
   estimated_tokens_after: number;
 }
 
+/**
+ * Response of `chat.undoLastExchange`. The removed exchange is the last user
+ * message plus the assistant reply that followed it (just the user message
+ * when generation failed).
+ */
+export interface UndoResult {
+  status: string;
+  session_id: string;
+  removed_messages: number;
+  /** The user message that was removed — handy for a retry. */
+  undone_prompt: string;
+  messages_remaining: number;
+}
+
 export interface StatusMessage {
   status: string;
   message: string;
@@ -108,6 +122,56 @@ export interface UploadResponse {
   processed: number;
   succeeded: number;
   results: UploadResult[];
+}
+
+/** Response of `rag.uploadText`. */
+export interface TextUploadResponse {
+  status: string;
+  collection_name: string;
+  filename: string;
+  chunks_stored: number;
+  improved_search: boolean;
+}
+
+export interface FileChunk {
+  chunk_index: number;
+  content: string;
+}
+
+/**
+ * Response of `rag.getChunks` — the document's stored chunks in order,
+ * exactly as retrieval sees them.
+ */
+export interface FileChunks {
+  status: string;
+  collection_name: string;
+  filename: string;
+  total_chunks: number;
+  chunks: FileChunk[];
+}
+
+/**
+ * Response of `rag.questionStatus`. `generation_pending` is true while a
+ * background generation pass is running.
+ */
+export interface QuestionStatus {
+  collection_name: string;
+  filename: string;
+  total_chunks: number;
+  questions_stored: number;
+  generation_pending: boolean;
+}
+
+/**
+ * Response of `rag.regenerateQuestions`. `status` is "scheduled"; generation
+ * runs in the background — poll `questionStatus` for progress. `chunks` is
+ * how many chunks will be processed.
+ */
+export interface QuestionRegeneration {
+  status: string;
+  collection_name: string;
+  filename: string;
+  chunks: number;
 }
 
 export interface AskResponse {
@@ -190,6 +254,15 @@ export interface UploadOptions {
   improvedSearch?: boolean;
 }
 
+/** Options for `rag.uploadText` — same knobs as `UploadOptions`. */
+export interface UploadTextOptions {
+  collectionName?: string;
+  chunkSize?: number;
+  chunkOverlap?: number;
+  chunkingStrategy?: ChunkingStrategy;
+  improvedSearch?: boolean;
+}
+
 export interface AskOptions {
   collectionName: string;
   sessionId?: string;
@@ -219,11 +292,16 @@ export class ChatResource {
   getHistory(sessionId: string): Promise<SessionHistory>;
   getUsage(sessionId: string): Promise<SessionUsage>;
   compact(sessionId: string): Promise<CompactionResult>;
+  undoLastExchange(sessionId: string): Promise<UndoResult>;
   clearHistory(sessionId: string): Promise<SessionDeleted>;
 }
 
 export class RagResource {
   upload(files: FileInput | FileInput[], opts?: UploadOptions): Promise<UploadResponse>;
+  uploadText(text: string, filename: string, opts?: UploadTextOptions): Promise<TextUploadResponse>;
+  getChunks(collectionName: string, filename: string): Promise<FileChunks>;
+  questionStatus(collectionName: string, filename: string): Promise<QuestionStatus>;
+  regenerateQuestions(collectionName: string, filename: string): Promise<QuestionRegeneration>;
   ask(question: string, opts: AskOptions): Promise<AskResponse>;
   askStream(question: string, opts: AskOptions): AsyncGenerator<StreamEvent>;
   search(query: string, opts: SearchOptions): Promise<SearchResponse>;
