@@ -19,6 +19,7 @@ import {
   type ChatResponse,
   type SearchResponse,
   type AskResponse,
+  type ModelListResponse,
 } from "praixis";
 
 const client = new PraixisClient("http://localhost:8080", "praixis_key", {
@@ -28,6 +29,32 @@ const client = new PraixisClient("http://localhost:8080", "praixis_key", {
 // baseURL is readonly — assigning to it must not compile.
 // @ts-expect-error readonly property
 client.baseURL = "http://elsewhere";
+
+async function models(): Promise<void> {
+  const listing: ModelListResponse = await client.models.list();
+  const _first: string = listing.models[0].id;
+  const _window: number = listing.models[0].context_window;
+  const _default: string = listing.default;
+
+  // model= is accepted everywhere a model can answer.
+  await client.chat.send("hi", { model: listing.default });
+  await client.chat.summarizeFile({ filename: "a.txt", content: "x" }, { model: "fast" });
+  await client.rag.ask("q", { collectionName: "docs", model: "fast" });
+  // Buffered bodies name the model that ran — all four response shapes carry it.
+  const cmp = await client.rag.compare("docs", "a.pdf", "b.pdf", { model: "fast" });
+  const _cmpModel: string | undefined = cmp.model;
+  const docSum = await client.rag.summarizeDocument("docs", "a.pdf", { model: "fast" });
+  const _docModel: string | undefined = docSum.model;
+  const fileSum = await client.chat.summarizeFile({ filename: "a.txt", content: "x" }, { model: "fast" });
+  const _fileModel: string | undefined = fileSum.model;
+  const asked = await client.rag.ask("q", { collectionName: "docs", model: "fast" });
+  const _askModel: string | undefined = asked.model;
+  for await (const event of client.chat.stream("hi", { model: "fast" })) {
+    if (event.type === "model") {
+      const _which: string = event.value;
+    }
+  }
+}
 
 async function chat(): Promise<void> {
   const reply: ChatResponse = await client.chat.send("hello", {
@@ -117,5 +144,6 @@ function errors(e: unknown): void {
 }
 
 void chat;
+void models;
 void rag;
 void errors;

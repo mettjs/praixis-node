@@ -92,6 +92,7 @@ jobs:
               "src/errors.js",
               "src/files.js",
               "src/resources/chat.js",
+              "src/resources/models.js",
               "src/resources/rag.js",
               "src/stream.js",
               "src/transport.js",

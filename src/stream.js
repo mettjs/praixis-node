@@ -6,6 +6,7 @@
  * are followed by the raw generated content:
  *
  *   [SESSION_ID:<id>]\n
+ *   [MODEL:<model id>]\n        (chat and RAG ask; which model answered)
  *   [SEARCH_QUERY:<query>]\n     (RAG ask only)
  *   [SOURCES:<a.txt,b.txt>]\n    (RAG ask only)
  *   [FILE:<filename>]\n          (file summary only)
@@ -23,7 +24,7 @@
  * the marker line. Decoding applies the reverse replacements with `%25` last.
  */
 
-const MARKER_KEYS = ["SESSION_ID", "SEARCH_QUERY", "SOURCES", "FILE", "PROGRESS", "ERROR"];
+const MARKER_KEYS = ["SESSION_ID", "MODEL", "SEARCH_QUERY", "SOURCES", "FILE", "PROGRESS", "ERROR"];
 
 /** A complete leading marker line: `[KEY:value]\n`. */
 const MARKER_RE = new RegExp(`^\\[(${MARKER_KEYS.join("|")}):([^\\n]*)\\]\\n`);
@@ -34,6 +35,7 @@ const PARTIAL_MARKER_RE = /^\[[A-Z_]*(:[^\n]*)?$/;
 /** Server marker key -> public event type. */
 const EVENT_TYPE = {
   SESSION_ID: "session_id",
+  MODEL: "model",
   SEARCH_QUERY: "search_query",
   SOURCES: "sources",
   FILE: "file",

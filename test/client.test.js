@@ -148,18 +148,33 @@ function startServer() {
     if (req.method === "POST" && p.endsWith("/questions"))
       return send(200, { status: "scheduled", collection_name: "docs", filename: "policy.pdf", chunks: 2 });
 
+    if (req.method === "GET" && p === "/general-requests/models")
+      return send(200, {
+        models: [
+          { id: "fast", context_window: 8192 },
+          { id: "smart", context_window: 32768 },
+        ],
+        default: "fast",
+      });
     if (req.method === "POST" && p === "/general-requests/chat") {
       const body = JSON.parse((await readBody()).toString());
+      // An empty model must be dropped client-side, never sent as "".
+      assert.ok(!("model" in body) || body.model, `empty model reached the wire: ${JSON.stringify(body)}`);
+      const model = body.model ?? "fast";
       // Buffered path sends stream:false and expects the server's native JSON.
-      if (body.stream === false) return send(200, { session_id: body.session_id ?? "new-id", content: `echo:${body.prompt}` });
-      return sendStream(200, `[SESSION_ID:${body.session_id ?? "new-id"}]\necho:${body.prompt}`);
+      if (body.stream === false)
+        return send(200, { session_id: body.session_id ?? "new-id", model, content: `echo:${body.prompt}` });
+      return sendStream(200, `[SESSION_ID:${body.session_id ?? "new-id"}]\n[MODEL:${model}]\necho:${body.prompt}`);
     }
     if (req.method === "POST" && p === "/general-requests/file_summary") {
       const raw = (await readBody()).toString();
       assert.match(req.headers["content-type"] || "", /multipart\/form-data/);
       assert.match(raw, /report\.txt/);
       assert.match(raw, /name="response_format"/);
-      if (/name="stream"\r?\n\r?\n\s*false/.test(raw)) return send(200, { filename: "report.txt", content: "short" });
+      if (/name="stream"\r?\n\r?\n\s*false/.test(raw)) {
+        const model = /name="model"\r?\n\r?\n\s*smart/.test(raw) ? "smart" : "fast";
+        return send(200, { filename: "report.txt", content: "short", model });
+      }
       return sendStream(200, "[FILE:report.txt]\nshort");
     }
     if (req.method === "POST" && p === "/rag-db/upload") {
@@ -178,18 +193,32 @@ function startServer() {
     }
     if (req.method === "POST" && p === "/rag-db/ask") {
       const body = JSON.parse((await readBody()).toString());
+      const askModel = body.model ?? "fast";
       if (body.stream === false)
-        return send(200, { session_id: body.session_id ?? "new", search_query: body.question, sources: ["a.txt"], content: "42" });
-      return sendStream(200, `[SESSION_ID:${body.session_id ?? "new"}]\n[SEARCH_QUERY:${body.question}]\n[SOURCES:a.txt]\n42`);
+        return send(200, {
+          session_id: body.session_id ?? "new",
+          model: askModel,
+          search_query: body.question,
+          sources: ["a.txt"],
+          content: "42",
+        });
+      return sendStream(
+        200,
+        `[SESSION_ID:${body.session_id ?? "new"}]\n[MODEL:${askModel}]\n[SEARCH_QUERY:${body.question}]\n[SOURCES:a.txt]\n42`,
+      );
     }
     if (req.method === "POST" && p === "/rag-db/knowledge_base/compare") {
       const body = JSON.parse((await readBody()).toString());
       if (body.stream) return sendStream(200, "v1 vs v2");
-      return send(200, { file_1: body.file_1, file_2: body.file_2, content: "v1 vs v2" });
+      return send(200, { file_1: body.file_1, file_2: body.file_2, content: "v1 vs v2", model: body.model ?? "fast" });
     }
     if (req.method === "GET" && /\/summary$/.test(p)) {
       if (url.searchParams.get("stream") === "true") return sendStream(200, "[FILE:policy.pdf]\nsummary text");
-      return send(200, { filename: "policy.pdf", content: "summary text" });
+      return send(200, {
+        filename: "policy.pdf",
+        content: "summary text",
+        model: url.searchParams.get("model") ?? "fast",
+      });
     }
     if (req.method === "POST" && p === "/rag-db/search") {
       const body = JSON.parse((await readBody()).toString());
@@ -284,6 +313,34 @@ test("praixis node client", async (t) => {
   const askEvents = await toArray(client.rag.askStream("q?", { collectionName: "docs", sessionId: "s2" }));
   assert.deepEqual(askEvents.find((e) => e.type === "sources"), { type: "sources", value: ["a.txt"] });
   assert.equal(askEvents.filter((e) => e.type === "token").map((e) => e.value).join(""), "42");
+
+  // model selection
+  const listing = await client.models.list();
+  assert.equal(listing.default, "fast");
+  assert.deepEqual(listing.models.map((m) => m.id), ["fast", "smart"]);
+  assert.equal(listing.models[1].context_window, 32768);
+
+  // every generating method takes model, and the answer names what ran
+  assert.equal((await client.chat.send("hi", { model: "smart" })).model, "smart");
+  assert.equal((await client.rag.ask("q?", { collectionName: "docs", model: "smart" })).model, "smart");
+  assert.equal((await client.rag.compare("docs", "v1.pdf", "v2.pdf", { model: "smart" })).model, "smart");
+  assert.equal((await client.rag.summarizeDocument("docs", "policy.pdf", { model: "smart" })).model, "smart");
+  const scopedSum = await client.chat.summarizeFile({ filename: "report.txt", content: "x" }, { model: "smart" });
+  assert.equal(scopedSum.model, "smart");
+  // omitting it leaves the choice to the server
+  assert.equal((await client.chat.send("hi")).model, "fast");
+  // ...and so does an empty string: "" is not a valid registry id, so putting
+  // it on the wire would be a 422 rather than "use the key's default".
+  assert.equal((await client.chat.send("hi", { model: "" })).model, "fast");
+  assert.equal((await client.rag.ask("q?", { collectionName: "docs", model: "" })).model, "fast");
+  assert.equal((await client.rag.compare("docs", "a", "b", { model: "" })).model, "fast");
+  assert.equal((await client.rag.summarizeDocument("docs", "policy.pdf", { model: "" })).model, "fast");
+
+  // streamed: [MODEL:...] decodes to its own event, ahead of the content
+  const modelEvents = await toArray(client.chat.stream("hi", { model: "smart" }));
+  assert.deepEqual(modelEvents[1], { type: "model", value: "smart" });
+  const askModelEvents = await toArray(client.rag.askStream("q?", { collectionName: "docs", model: "smart" }));
+  assert.deepEqual(askModelEvents.find((e) => e.type === "model"), { type: "model", value: "smart" });
 
   // search (retrieval only, buffered native JSON)
   const hits = await client.rag.search("setup steps", { collectionName: "docs", nResults: 3 });

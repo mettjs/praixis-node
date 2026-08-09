@@ -16,6 +16,8 @@ export type ChunkingStrategy = "semantic" | "character";
  */
 export type StreamEvent =
   | { type: "session_id"; value: string }
+  /** Which configured model ran — every generating endpoint emits it. */
+  | { type: "model"; value: string }
   | { type: "search_query"; value: string }
   | { type: "sources"; value: string[] }
   | { type: "file"; value: string }
@@ -34,6 +36,8 @@ export interface ChatResponse {
   session_id: string;
   /** The reply. For `responseFormat: "json"`, the model's raw JSON string. */
   content: string;
+  /** Registry id of the model that answered. Absent before engine 2.4.0. */
+  model?: string;
 }
 
 /** Buffered response from `chat.summarizeFile` and `rag.summarizeDocument`. */
@@ -42,6 +46,8 @@ export interface SummaryResponse {
   filename: string;
   /** The summary. For `responseFormat: "json"`, the model's raw JSON string. */
   content: string;
+  /** Registry id of the model that produced it. Absent before engine 2.4.0. */
+  model?: string;
 }
 
 /** Buffered response from `rag.compare`. */
@@ -50,6 +56,8 @@ export interface ComparisonResponse {
   file_2: string;
   /** The comparison. For `responseFormat: "json"`, the model's raw JSON string. */
   content: string;
+  /** Registry id of the model that produced it. Absent before engine 2.4.0. */
+  model?: string;
 }
 
 export interface SessionHistory {
@@ -182,6 +190,23 @@ export interface AskResponse {
   sources: string[];
   /** The answer. For `responseFormat: "json"`, the model's raw JSON string. */
   content: string;
+  /** Registry id of the model that answered. Absent before engine 2.4.0. */
+  model?: string;
+}
+
+/** One entry of `models.list()`. */
+export interface ModelInfo {
+  /** Registry id — the value to pass as `model`. */
+  id: string;
+  /** That model's token budget; sessions are compacted against it. */
+  context_window: number;
+}
+
+/** Response of `models.list()`, scoped to the calling API key. */
+export interface ModelListResponse {
+  models: ModelInfo[];
+  /** The id used when a request names no model. */
+  default: string;
 }
 
 /** One ranked chunk from `rag.search`. */
@@ -226,17 +251,26 @@ export interface ClientOptions {
 export interface ChatOptions {
   systemPrompt?: string;
   sessionId?: string;
+  /**
+   * Registry id of the model to answer with (see `models.list()`); omit for the
+   * key's default. A session stays on the model it was last given.
+   */
+  model?: string;
   responseFormat?: ResponseFormat;
 }
 
 export interface SummarizeFileOptions {
   task?: string;
   tone?: string;
+  /** Registry id of the model to use; omit for the key's default. */
+  model?: string;
   responseFormat?: ResponseFormat;
 }
 
 /** Options for `rag.compare` / `rag.compareStream` and `rag.summarizeDocument` / `rag.summarizeDocumentStream`. */
 export interface ResponseFormatOptions {
+  /** Registry id of the model to use; omit for the key's default. */
+  model?: string;
   responseFormat?: ResponseFormat;
 }
 
@@ -273,6 +307,12 @@ export interface AskOptions {
    * `source`, e.g. `{ source: "policy.pdf" }`; any other keys are ignored.
    */
   metadataFilter?: Record<string, unknown>;
+  /**
+   * Registry id of the model to write the answer (see `models.list()`); omit
+   * for the key's default. Query reformulation always runs on the server's own
+   * utility model regardless.
+   */
+  model?: string;
   responseFormat?: ResponseFormat;
 }
 
@@ -294,6 +334,11 @@ export class ChatResource {
   compact(sessionId: string): Promise<CompactionResult>;
   undoLastExchange(sessionId: string): Promise<UndoResult>;
   clearHistory(sessionId: string): Promise<SessionDeleted>;
+}
+
+export class ModelsResource {
+  /** GET /general-requests/models — the models this API key may use. */
+  list(): Promise<ModelListResponse>;
 }
 
 export class RagResource {
@@ -320,6 +365,7 @@ export class PraixisClient {
   constructor(baseURL: string, apiKey?: string, opts?: ClientOptions);
   readonly baseURL: string;
   chat: ChatResource;
+  models: ModelsResource;
   rag: RagResource;
 }
 

@@ -2,6 +2,7 @@
 
 import { Transport } from "./transport.js";
 import { ChatResource } from "./resources/chat.js";
+import { ModelsResource } from "./resources/models.js";
 import { RagResource } from "./resources/rag.js";
 
 export class PraixisClient {
@@ -13,6 +14,7 @@ export class PraixisClient {
   constructor(baseURL, apiKey = "", { timeoutMs = 30000 } = {}) {
     this._transport = new Transport(baseURL, apiKey, { timeoutMs });
     this.chat = new ChatResource(this._transport);
+    this.models = new ModelsResource(this._transport);
     this.rag = new RagResource(this._transport);
   }
 

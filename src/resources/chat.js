@@ -12,30 +12,36 @@ export class ChatResource {
     this._t = transport;
   }
 
-  _chatBody(prompt, { systemPrompt, sessionId, responseFormat = "text" } = {}) {
+  _chatBody(prompt, { systemPrompt, sessionId, model, responseFormat = "text" } = {}) {
     const body = { prompt, response_format: responseFormat };
     if (systemPrompt !== undefined) body.system_prompt = systemPrompt;
     if (sessionId !== undefined) body.session_id = sessionId;
+    // Truthiness, not `!== undefined`: an empty string is not a valid registry
+    // id, and sending it turns "use the key's default" into a 422.
+    if (model) body.model = model;
     return body;
   }
 
-  _summaryArgs(file, { task = DEFAULT_TASK, tone = DEFAULT_TONE, responseFormat = "text" } = {}) {
-    return {
-      files: [toPart(file, "file")],
-      fields: [
-        { name: "task", value: task },
-        { name: "tone", value: tone },
-        { name: "response_format", value: responseFormat },
-      ],
-    };
+  _summaryArgs(file, { task = DEFAULT_TASK, tone = DEFAULT_TONE, model, responseFormat = "text" } = {}) {
+    const fields = [
+      { name: "task", value: task },
+      { name: "tone", value: tone },
+      { name: "response_format", value: responseFormat },
+    ];
+    if (model) fields.push({ name: "model", value: model });
+    return { files: [toPart(file, "file")], fields };
   }
 
   /**
    * POST /general-requests/chat - send a prompt and get the full reply in one
    * call. Omit `sessionId` to start a new conversation. Sends `stream: false`
-   * and returns the server's buffered JSON: { session_id, content }. For
+   * and returns the server's buffered JSON: { session_id, model, content }. For
    * `responseFormat: "json"`, `content` is the model's raw JSON string — parse
    * it yourself.
+   *
+   * `model` picks which configured LLM answers (see `client.models.list()`);
+   * omit it for the key's default. A session remembers the model it was last
+   * given, so passing it once keeps the conversation there.
    */
   async send(prompt, opts = {}) {
     return this._t.requestJSON("POST", `${PREFIX}/chat`, {
@@ -45,7 +51,8 @@ export class ChatResource {
 
   /**
    * POST /general-requests/chat - stream the reply incrementally, yielding
-   * `{ type: "session_id" | "token", value }` events as they arrive.
+   * `{ type: "session_id" | "model" | "token", value }` events as they arrive.
+   * The `model` event names which model answered.
    */
   stream(prompt, opts = {}) {
     return streamEvents(this._t.requestStream("POST", `${PREFIX}/chat`, { body: this._chatBody(prompt, opts) }));

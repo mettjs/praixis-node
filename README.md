@@ -90,8 +90,9 @@ The server's generative endpoints accept a `stream` toggle. The buffered methods
 scripts and backends. The answer is always under `content`.
 
 For token-by-token output, use the streaming variants, which return an async
-iterator of events. Marker events (`session_id`, `search_query`, `sources`,
-`file`, `progress`, `error`) arrive before the `token` events that carry content:
+iterator of events. Marker events (`session_id`, `model`, `search_query`,
+`sources`, `file`, `progress`, `error`) arrive before the `token` events that
+carry content:
 
 ```js
 for await (const event of client.chat.stream("Tell me a story")) {
@@ -105,6 +106,44 @@ for await (const event of client.chat.stream("Tell me a story")) {
 //   client.rag.compareStream(coll, f1, f2)                   -> tokens
 //   client.rag.summarizeDocumentStream(coll, filename)       -> file, then tokens
 ```
+
+## Choosing a model
+
+A server may have several LLMs configured. Ask which ones your key may use:
+
+```js
+const listing = await client.models.list();
+// { models: [{ id: "fast", context_window: 8192 },
+//            { id: "smart", context_window: 32768 }],
+//   default: "fast" }
+```
+
+Then pass `model` to any generating method — `chat.send`, `chat.stream`,
+`chat.summarizeFile`, `rag.ask`, `rag.compare`, `rag.summarizeDocument`, and
+their streaming siblings:
+
+```js
+const reply = await client.chat.send("Explain this contract clause", { model: "smart" });
+console.log(reply.model); // "smart" — which model actually answered
+```
+
+Notes worth knowing:
+
+- **Omit it and the server decides.** Each API key has a default; without one,
+  the server's registry default answers. A single-model deployment reports one
+  entry (usually `"default"`) and never needs the option at all.
+- **Sessions are sticky.** A session remembers the model it was last given, so
+  passing `model` once keeps the rest of that conversation on it. Passing a
+  different one mid-conversation re-binds it.
+- **Ids are validated.** An id your key may not use is rejected with a 400 —
+  identically to one that does not exist, so listing is the way to discover them.
+- **Streaming reports it too**, as a `model` event right after `session_id`.
+- **Context windows differ.** `context_window` is the token budget the server
+  measures a session against before compacting it; moving a long conversation to
+  a smaller model is what that field is there to warn you about.
+
+Requires engine 2.4.0 or newer. Against an older server `models.list()` returns
+404 and `model` is ignored.
 
 ## RAG
 

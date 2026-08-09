@@ -96,19 +96,26 @@ export class RagResource {
     );
   }
 
-  _askBody(question, { collectionName, sessionId, nResults = 5, systemPrompt, metadataFilter, responseFormat = "text" } = {}) {
+  _askBody(question, { collectionName, sessionId, nResults = 5, systemPrompt, metadataFilter, model, responseFormat = "text" } = {}) {
     const body = { collection_name: collectionName, question, n_results: nResults, response_format: responseFormat };
     if (sessionId !== undefined) body.session_id = sessionId;
     if (systemPrompt !== undefined) body.system_prompt = systemPrompt;
     if (metadataFilter !== undefined) body.metadata_filter = metadataFilter;
+    // Truthiness, not `!== undefined`: an empty string is not a valid registry
+    // id, and sending it turns "use the key's default" into a 422.
+    if (model) body.model = model;
     return body;
   }
 
   /**
    * POST /rag-db/ask - answer a question grounded in a collection, in one call.
    * Sends `stream: false` and returns the server's buffered JSON:
-   * { session_id, search_query, sources, content }. For `responseFormat: "json"`,
-   * `content` is the model's raw JSON string — parse it yourself.
+   * { session_id, model, search_query, sources, content }. For
+   * `responseFormat: "json"`, `content` is the model's raw JSON string — parse
+   * it yourself.
+   *
+   * `model` picks which configured LLM writes the answer; the server's query
+   * reformulation always runs on its own cheap utility model regardless.
    */
   async ask(question, opts = {}) {
     return this._t.requestJSON("POST", `${PREFIX}/ask`, {
@@ -118,7 +125,8 @@ export class RagResource {
 
   /**
    * POST /rag-db/ask - stream the grounded answer incrementally, yielding
-   * `{ type: "session_id" | "search_query" | "sources" | "token", value }` events.
+   * `{ type: "session_id" | "model" | "search_query" | "sources" | "token", value }`
+   * events.
    */
   askStream(question, opts = {}) {
     return streamEvents(this._t.requestStream("POST", `${PREFIX}/ask`, { body: this._askBody(question, opts) }));
@@ -169,48 +177,64 @@ export class RagResource {
 
   /**
    * POST /rag-db/knowledge_base/compare - compare two stored documents in one
-   * call. Returns the server's buffered JSON: { file_1, file_2, content }.
+   * call. Returns the server's buffered JSON: { file_1, file_2, content, model }.
+   * `model` picks which configured LLM runs; omit it for the key's default.
    */
-  async compare(collectionName, file1, file2, { responseFormat = "text" } = {}) {
+  async compare(collectionName, file1, file2, { model, responseFormat = "text" } = {}) {
     return this._t.requestJSON("POST", `${PREFIX}/knowledge_base/compare`, {
-      body: { collection_name: collectionName, file_1: file1, file_2: file2, response_format: responseFormat },
+      body: this._compareBody(collectionName, file1, file2, responseFormat, model),
     });
+  }
+
+  _compareBody(collectionName, file1, file2, responseFormat, model, stream = false) {
+    const body = {
+      collection_name: collectionName,
+      file_1: file1,
+      file_2: file2,
+      response_format: responseFormat,
+    };
+    if (stream) body.stream = true;
+    if (model) body.model = model;
+    return body;
   }
 
   /**
    * POST /rag-db/knowledge_base/compare - stream the comparison incrementally,
-   * yielding `{ type: "error" | "token", value }` events.
+   * yielding `{ type: "model" | "error" | "token", value }` events. The `model`
+   * marker names which model ran and arrives before any content.
    */
-  compareStream(collectionName, file1, file2, { responseFormat = "text" } = {}) {
+  compareStream(collectionName, file1, file2, { model, responseFormat = "text" } = {}) {
     return streamEvents(
       this._t.requestStream("POST", `${PREFIX}/knowledge_base/compare`, {
-        body: { collection_name: collectionName, file_1: file1, file_2: file2, response_format: responseFormat, stream: true },
+        body: this._compareBody(collectionName, file1, file2, responseFormat, model, true),
       }),
     );
   }
 
   /**
    * GET /rag-db/knowledge_base/{collectionName}/files/{filename}/summary - in
-   * one call. Returns the server's buffered JSON: { filename, content }.
+   * one call. Returns the server's buffered JSON: { filename, content, model }.
+   * `model` picks which configured LLM runs; omit it for the key's default.
    */
-  async summarizeDocument(collectionName, filename, { responseFormat = "text" } = {}) {
+  async summarizeDocument(collectionName, filename, { model, responseFormat = "text" } = {}) {
     return this._t.requestJSON(
       "GET",
       `${PREFIX}/knowledge_base/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/summary`,
-      { params: { response_format: responseFormat } },
+      { params: { response_format: responseFormat, ...(model && { model }) } },
     );
   }
 
   /**
    * GET .../summary - stream the document summary incrementally, yielding
-   * `{ type: "file" | "progress" | "error" | "token", value }` events.
+   * `{ type: "file" | "model" | "progress" | "error" | "token", value }` events;
+   * `file` and `model` lead the stream.
    */
-  summarizeDocumentStream(collectionName, filename, { responseFormat = "text" } = {}) {
+  summarizeDocumentStream(collectionName, filename, { model, responseFormat = "text" } = {}) {
     return streamEvents(
       this._t.requestStream(
         "GET",
         `${PREFIX}/knowledge_base/${encodeURIComponent(collectionName)}/files/${encodeURIComponent(filename)}/summary`,
-        { params: { response_format: responseFormat, stream: true } },
+        { params: { response_format: responseFormat, stream: true, ...(model && { model }) } },
       ),
     );
   }
