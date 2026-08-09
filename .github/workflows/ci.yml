@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node >= 18, so 18 is a promise to keep.
+        # The runtime relies on global fetch/FormData/Blob, all present in 18.
+        node: ["18", "20", "22", "24"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No install step: the package has zero runtime dependencies and the
+      # tests use only node: builtins. Anything that makes `npm install`
+      # necessary here would be a regression in that guarantee.
+      - name: Run tests
+        run: node --test
+
+  typecheck:
+    name: typecheck (index.d.ts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      # index.d.ts is hand-authored against a plain-JavaScript runtime, so
+      # nothing generates or verifies it — it drifts silently unless something
+      # consumes it. types/smoke.ts is that consumer. devDependencies are
+      # pinned exactly and never reach consumers (dependencies stays empty).
+      # `npm ci` (not `npm install`): it installs strictly from the committed
+      # lockfile and fails if package.json and the lock disagree, so the
+      # typecheck can never silently run against a different TypeScript.
+      - name: Install dev dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  package:
+    name: package contents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      # package.json `files` is a whitelist, so a stray directory cannot ship
+      # by accident — but a *missing* entry silently ships a broken package
+      # (e.g. index.d.ts dropped, leaving consumers untyped). Assert the exact
+      # contents instead of trusting the whitelist to have been updated.
+      - name: Assert tarball contents
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const expected = [
+              "LICENSE",
+              "README.md",
+              "index.d.ts",
+              "index.js",
+              "package.json",
+              "src/client.js",
+              "src/errors.js",
+              "src/files.js",
+              "src/resources/chat.js",
+              "src/resources/rag.js",
+              "src/stream.js",
+              "src/transport.js",
+            ];
+            const actual = JSON.parse(readFileSync("/tmp/pack.json", "utf8"))[0]
+              .files.map((f) => f.path).sort();
+            const missing = expected.filter((f) => !actual.includes(f));
+            const extra = actual.filter((f) => !expected.includes(f));
+            if (missing.length || extra.length) {
+              console.error("tarball contents changed");
+              if (missing.length) console.error("  missing:", missing.join(", "));
+              if (extra.length) console.error("  unexpected:", extra.join(", "));
+              console.error("Update package.json `files` (and this list) deliberately.");
+              process.exit(1);
+            }
+            console.log(`tarball contents match (${actual.length} files)`);
+          '
+
+  marker-contract:
+    name: marker vectors match the engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The vendored copy is what this SDK's tests assert against, so a stale
+      # copy means the tests pass while the SDK quietly disagrees with the live
+      # engine. Comparing against PraixisEngine's canonical file on main turns
+      # "someone forgot to re-vendor" into a visible signal instead of a bug
+      # that only shows up in a user's filenames.
+      #
+      # continue-on-error: the engine legitimately lands a marker change first
+      # and this SDK follows in its own commit, so a difference must not block
+      # merges here. The job still reports success; the annotation on the run
+      # summary is the signal, and it means "re-vendor and update this decoder".
+      - name: Compare with PraixisEngine main
+        continue-on-error: true
+        run: |
+          canonical=https://raw.githubusercontent.com/mettjs/PraixisEngine/main/tests/marker_vectors.json
+          if ! curl -fsSL -o /tmp/engine_vectors.json "$canonical"; then
+            echo "::warning title=Canonical marker vectors unavailable::could not fetch $canonical — has the engine change been pushed to main?"
+            exit 1
+          fi
+          if diff -u /tmp/engine_vectors.json test/marker_vectors.json; then
+            echo "vendored marker vectors are identical to PraixisEngine main"
+          else
+            echo "::warning title=Marker vectors are stale::test/marker_vectors.json differs from PraixisEngine main — re-vendor it and update this SDK's decoder to match"
+            exit 1
+          fi

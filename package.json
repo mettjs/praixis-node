@@ -20,10 +20,20 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "typecheck": "tsc --project tsconfig.json"
   },
-  "keywords": ["praixis", "llm", "rag", "ai"],
+  "keywords": [
+    "praixis",
+    "llm",
+    "rag",
+    "ai"
+  ],
   "author": "Michael E. Ramirez A.",
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
+  }
 }
