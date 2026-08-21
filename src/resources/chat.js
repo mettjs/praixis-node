@@ -63,7 +63,8 @@ export class ChatResource {
    * call. `file` is { filename, content, contentType? } or a File. The filename
    * extension is the primary format signal (.pdf/.docx/.txt); contentType is
    * the server's fallback for extension-less names. Sends `stream: false` and
-   * returns the server's buffered JSON: { filename, content }.
+   * returns the server's buffered JSON: { filename, content, model }, where
+   * `model` is the registry id that produced the summary.
    */
   async summarizeFile(file, opts = {}) {
     const args = this._summaryArgs(file, opts);
